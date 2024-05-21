@@ -13,7 +13,7 @@ config = configparser.ConfigParser()
 config.read('/etc/zabbix/zabbix-python.conf')
 # SNMP параметры
 SNMP_PORT = 161
-SNMP_COMMUNITY = 'public'
+SNMP_COMMUNITY = 'gkj[jt50cjj,otcndj'
 OID_MODEL = '1.3.6.1.2.1.25.3.2.1.3.1'
 OID_SERIAL = '1.3.6.1.2.1.43.5.1.1.17.1'
 
@@ -92,11 +92,6 @@ def scan_subnets(clean_subnets_df):
     return pd.DataFrame(active_ip_list)
 
 
-dwh_subnets_df = get_data_from_dwh()
-scan_results_df = scan_subnets(dwh_subnets_df)
-print(scan_results_df)
-
-
 def check_snmp(host):
     """ Проверяет значение SNMP на указанном хосте """
     try:
@@ -137,6 +132,10 @@ def find_printers(df):
     printer_df = pd.DataFrame(results)
     return printer_df
 
+
+dwh_subnets_df = get_data_from_dwh()
+scan_results_df = scan_subnets(dwh_subnets_df)
+print(scan_results_df)
 
 if __name__ == "__main__":
     # Находим сетевые принтеры с помощью функции find_printers
