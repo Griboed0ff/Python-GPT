@@ -4,12 +4,18 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import subprocess
 import ipaddress
 import configparser
+from pysnmp.hlapi import *
 from sqlalchemy import create_engine
 
 
 start_time = time.time()
 config = configparser.ConfigParser()
 config.read('/etc/zabbix/zabbix-python.conf')
+# SNMP параметры
+SNMP_PORT = 161
+SNMP_COMMUNITY = 'public'
+OID_MODEL = '1.3.6.1.2.1.25.3.2.1.3.1'
+OID_SERIAL = '1.3.6.1.2.1.43.5.1.1.17.1'
 
 
 def is_valid_subnet(subnet):
@@ -89,6 +95,54 @@ def scan_subnets(clean_subnets_df):
 dwh_subnets_df = get_data_from_dwh()
 scan_results_df = scan_subnets(dwh_subnets_df)
 print(scan_results_df)
+
+
+def check_snmp(host):
+    """ Проверяет значение SNMP на указанном хосте """
+    try:
+        iterator = getCmd(
+            SnmpEngine(),
+            CommunityData(SNMP_COMMUNITY, mpModel=0),
+            UdpTransportTarget((host, SNMP_PORT)),
+            ContextData(),
+            ObjectType(ObjectIdentity(OID_MODEL)),
+            ObjectType(ObjectIdentity(OID_SERIAL))
+        )
+
+        errorIndication, errorStatus, errorIndex, varBinds = next(iterator)
+
+        if errorIndication:
+            return None
+        elif errorStatus:
+            return None
+        else:
+            model = varBinds[0][1]
+            serial = varBinds[1][1]
+            return {'IP Address': host, 'Model': str(model), 'Serial Number': str(serial)}
+    except Exception as e:
+        return None
+
+
+def find_printers(df):
+    """ Находит все сетевые принтеры среди доступных адресов """
+    results = []
+
+    with ThreadPoolExecutor(max_workers=256) as executor:
+        futures = {executor.submit(check_snmp, row['Active_IP']): row['Active_IP'] for _, row in df.iterrows() if not row['Active_IP'].endswith('.1')}
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                results.append(result)
+
+    printer_df = pd.DataFrame(results)
+    return printer_df
+
+
+if __name__ == "__main__":
+    # Находим сетевые принтеры с помощью функции find_printers
+    printers_df = find_printers(scan_results_df)
+    print(printers_df)
+
 
 end_time = time.time()
 elapsed_time = (end_time - start_time) / 60
