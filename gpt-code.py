@@ -59,7 +59,8 @@ and ca.mandt = t1.mandt and ca.mandt = ct.mandt and ca.mandt = cw.mandt and ca.a
 AND a.klart = '035' AND a.objek = t1.werks AND ca.atnam = 'ZS_M_REGION_MTS' and cw.atinn = ct.atinn 
 AND cw.atzhl = ct.atzhl
 AND cw.adzhl = ct.adzhl and cw.atinn = a.atinn AND cw.atwrt = a.atwrt AND ct.spras = 'R' AND ct.adzhl = '0000'
-and st.mandt = t1.mandt and st.ZZSTATUS_OP = w.ZZSTATUS_OP and adr.CLIENT = t1.mandt and adr.ADDRNUMBER = t1.ADRNR"""
+and st.mandt = t1.mandt and st.ZZSTATUS_OP = w.ZZSTATUS_OP and adr.CLIENT = t1.mandt and adr.ADDRNUMBER = t1.ADRNR
+and rownum < 50"""
     dataframe = pd.read_sql(dwh_query, dwh_connection)
     valid_subnets_df = dataframe[dataframe['ip_subnet'].apply(is_valid_subnet)]
     return valid_subnets_df
@@ -96,7 +97,7 @@ def scan_subnets(clean_subnets_df):
 def check_snmp(host):
     iterator = getCmd(
         SnmpEngine(),
-        CommunityData(SNMP_COMMUNITY, mpModel=0),  # SNMPv1
+        CommunityData(SNMP_COMMUNITY, mpModel=1),  # SNMPv2c
         UdpTransportTarget((host, SNMP_PORT), timeout=1, retries=1),
         ContextData(),
         ObjectType(ObjectIdentity(OID_MODEL)),
@@ -126,12 +127,21 @@ def check_snmp(host):
 
 def find_printers(df):
     """ Функция для поиска принтеров и сбора информации через SNMP """
-    results = []
-    max_workers = min(33000, len(df))  # Ограничиваем количество потоков разумным числом
+    max_workers = min(20000, len(df))  # Ограничиваем количество потоков разумным числом
     logging.info(f"Starting ThreadPoolExecutor with max_workers={max_workers}")
+    results = []
+
+    def chunkify(lst, n):
+        """Функция для разделения списка на n кусков"""
+        return [lst[i::n] for i in range(n)]
+
+    chunks = chunkify(df['Active_IP'], max_workers)
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(check_snmp, row['Active_IP']): row['Active_IP'] for _, row in df.iterrows()}
+        futures = []
+        for chunk in chunks:
+            futures.extend([executor.submit(check_snmp, ip) for ip in chunk])
+
         for future in as_completed(futures):
             try:
                 result = future.result()
