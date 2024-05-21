@@ -1,7 +1,7 @@
 import time
 import ipaddress
 import pandas as pd
-from pysnmp.hlapi import *
+from pysnmp.hlapi import SnmpEngine, CommunityData, UdpTransportTarget, ContextData, ObjectType, ObjectIdentity, getCmd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def scan_network(ip: str) -> pd.DataFrame:
@@ -31,10 +31,10 @@ networks = ['10.80.52.0/24', '10.80.49.0/24']
 active_ips = pd.concat([scan_network(net) for net in networks], ignore_index=True)
 print("Network scanning complete.")
 
-SNMP_PORT = 161
-SNMP_COMMUNITY = 'gkj[jt50cjj,otcndj'
-OID_MODEL = '1.3.6.1.2.1.25.3.2.1.3.1'
-OID_SERIAL = '1.3.6.1.2.1.43.5.1.1.17.1'
+SNMP_COMMUNITY = "gkj[jt50cjj,otcndj"  # Замени на своё значение
+SNMP_PORT = 161  # Замени на порт, используемый на твоём устройстве
+OID_MODEL = "1.3.6.1.2.1.1.1.0"  # Замени на корректный OID
+OID_SERIAL = "1.3.6.1.2.1.1.2.0"  # Замени на корректный OID
 
 def check_snmp(host):
     """ Проверяет значение SNMP на указанном хосте """
@@ -54,7 +54,7 @@ def check_snmp(host):
             print(f"Error: {error_indication}")
             return None
         elif error_status:
-            print(f"Error: {error_status}")
+            print(f"Error: {error_status.prettyPrint()}")
             return None
         else:
             model = var_binds[0][1]
