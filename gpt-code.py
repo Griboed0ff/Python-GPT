@@ -6,8 +6,10 @@ import subprocess
 import ipaddress
 import configparser
 from sqlalchemy import create_engine
+import logging
 
-
+# Настройка логирования
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 start_time = time.time()
 config = configparser.ConfigParser()
 config.read('/etc/zabbix/zabbix-python.conf')
@@ -92,7 +94,6 @@ def scan_subnets(clean_subnets_df):
 
 
 def check_snmp(host):
-    """ Проверяет значение SNMP на указанном хосте """
     iterator = getCmd(
         SnmpEngine(),
         CommunityData(SNMP_COMMUNITY, mpModel=0),  # SNMPv1
@@ -102,37 +103,58 @@ def check_snmp(host):
         ObjectType(ObjectIdentity(OID_SERIAL))
     )
 
-    errorIndication, errorStatus, errorIndex, varBinds = next(iterator)
+    error_indication, error_status, error_index, var_binds = next(iterator)
 
     result = {}
-    if errorIndication:
-        print(f"Error on {host}: {errorIndication}")
-    elif errorStatus:
-        print('%s at %s' % (
-            errorStatus.prettyPrint(),
-            errorIndex and varBinds[int(errorIndex) - 1] or '?'
+    if error_indication:
+        logging.error(f"Error on {host}: {error_indication}")
+    elif error_status:
+        logging.error('%s at %s' % (
+            error_status.prettyPrint(),
+            error_index and var_binds[int(error_index) - 1] or '?'
         ))
     else:
-        for varBind in varBinds:
+        for varBind in var_binds:
             oid, value = [x.prettyPrint() for x in varBind]
             result[oid] = value
         if result:
             result['IP'] = host
 
+    logging.debug(f"Checked {host} in {time.time() - start_time:.2f} seconds")
     return result if result else None
 
 
 def find_printers(df):
-    """ Находит все сетевые принтеры среди доступных адресов """
+    """ Функция для поиска принтеров и сбора информации через SNMP """
     results = []
-    with ThreadPoolExecutor(max_workers=256) as executor:
-        futures = {executor.submit(check_snmp, row['Active_IP']): row['Active_IP'] for _, row in df.iterrows() if not row['Active_IP'].endswith('.1')}
+    max_workers = min(33000, len(df))  # Ограничиваем количество потоков разумным числом
+    logging.info(f"Starting ThreadPoolExecutor with max_workers={max_workers}")
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(check_snmp, row['Active_IP']): row['Active_IP'] for _, row in df.iterrows()}
         for future in as_completed(futures):
-            result = future.result()
-            if result:
-                results.append(result)
-    printers_df = pd.DataFrame(results)
-    return printers_df
+            try:
+                result = future.result()
+                if result:
+                    results.append(result)
+            except Exception as e:
+                logging.error(f"Exception occurred: {e}")
+
+    # Преобразование списка результатов в DataFrame
+    printers_df_out = pd.DataFrame(results)
+
+    if not printers_df_out.empty:
+        # Обрезаем префиксы
+        printers_df_out.columns = printers_df_out.columns.str.replace(r'SNMPv2-SMI::mib-2.', '', regex=True)
+
+        # Переименуем столбцы
+        printers_df_out.rename(columns={
+            "25.3.2.1.3.1": 'model',
+            "43.5.1.1.17.1": 'sn',
+            'IP': 'ip'
+        }, inplace=True)
+
+    return printers_df_out
 
 
 dwh_subnets_df = get_data_from_dwh()
@@ -142,15 +164,6 @@ print(scan_results_df)
 # Передаем правильный DataFrame в функцию find_printers
 printers_df = find_printers(scan_results_df)
 
-# Обрезаем префиксы "SNMPv2-SMI::mib-2." для корректного переименования столбцов
-printers_df.columns = printers_df.columns.str.replace(r'SNMPv2-SMI::mib-2.', '')
-
-# Переименуем столбцы
-printers_df.rename(columns={
-    "25.3.2.1.3.1": 'model',
-    "43.5.1.1.17.1": 'sn',
-    'IP': 'ip'
-}, inplace=True)
 
 # Выводим DataFrame для проверки
 print(printers_df)
