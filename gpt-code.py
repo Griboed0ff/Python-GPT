@@ -1,22 +1,32 @@
-import time
 import pandas as pd
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from pysnmp.hlapi import *
-import subprocess
 import ipaddress
 import configparser
 from sqlalchemy import create_engine
 import logging
+import asyncio
+from pysnmp.hlapi.asyncio import *
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import subprocess
+import time
 
 # Настройка логирования
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-start_time = time.time()
+
+# Чтение конфигурационного файла
 config = configparser.ConfigParser()
 config.read('/etc/zabbix/zabbix-python.conf')
-SNMP_COMMUNITY = "public"  # Замени на своё значение
-SNMP_PORT = 161  # Замени на порт, используемый на твоём устройстве
-OID_MODEL = "1.3.6.1.2.1.25.3.2.1.3.1"  # Замени на корректный OID
-OID_SERIAL = "1.3.6.1.2.1.43.5.1.1.17.1"  # Замени на корректный OID
+
+# Константы SNMP
+SNMP_COMMUNITY = "public"  # Замените на ваше значение
+SNMP_PORT = 161  # Замените на порт, используемый на вашем устройстве
+OID_MODEL = "1.3.6.1.2.1.25.3.2.1.3.1"  # Замените на корректный OID
+OID_SERIAL = "1.3.6.1.2.1.43.5.1.1.17.1"  # Замените на корректный OID
+
+# Максимальное количество одновременно работающих SNMP запросов
+MAX_SNMP_REQUESTS = 2000
+
+# Semaphore для ограничения количества одновременно выполняемых SNMP-запросов
+semaphore = asyncio.Semaphore(MAX_SNMP_REQUESTS)  # Используем asyncio.Semaphore вместо threading.Semaphore
 
 
 def is_valid_subnet(subnet):
@@ -75,6 +85,7 @@ def scan_subnet(subnet):
     ip_range = get_ip_range(subnet)
     command = f"sudo masscan {ip_range} --ping --rate=300"
     scan_result = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
     active_ips = parse_output(scan_result.stdout)
     return subnet, active_ips
 
@@ -94,90 +105,47 @@ def scan_subnets(clean_subnets_df):
     return pd.DataFrame(active_ip_list)
 
 
-def check_snmp(host):
-    iterator = getCmd(
-        SnmpEngine(),
-        CommunityData(SNMP_COMMUNITY, mpModel=1),  # SNMPv2c
-        UdpTransportTarget((host, SNMP_PORT), timeout=1, retries=1),
-        ContextData(),
-        ObjectType(ObjectIdentity(OID_MODEL)),
-        ObjectType(ObjectIdentity(OID_SERIAL))
-    )
+async def poll_snmp(ip):
+    async with semaphore:
+        error_indication, error_status, error_index, var_binds = await getCmd(
+            SnmpEngine(),
+            CommunityData(SNMP_COMMUNITY),
+            UdpTransportTarget((ip, SNMP_PORT)),
+            ContextData(),
+            ObjectType(ObjectIdentity(OID_MODEL)),
+            ObjectType(ObjectIdentity(OID_SERIAL))
+        )
 
-    error_indication, error_status, error_index, var_binds = next(iterator)
-
-    result = {}
-    if error_indication:
-        logging.error(f"Error on {host}: {error_indication}")
-    elif error_status:
-        logging.error('%s at %s' % (
-            error_status.prettyPrint(),
-            error_index and var_binds[int(error_index) - 1] or '?'
-        ))
-    else:
-        for varBind in var_binds:
-            oid, value = [x.prettyPrint() for x in varBind]
-            result[oid] = value
-        if result:
-            result['IP'] = host
-
-    logging.debug(f"Checked {host} in {time.time() - start_time:.2f} seconds")
-    return result if result else None
+        if error_indication:
+            return None
+        elif error_status:
+            return None
+        else:
+            model = str(var_binds[0][1]) if len(var_binds) > 0 else None
+            serial = str(var_binds[1][1]) if len(var_binds) > 1 else None
+            return ip, model, serial
 
 
-def find_printers(df):
-    """ Функция для поиска принтеров и сбора информации через SNMP """
-    max_workers = min(20000, len(df))  # Ограничиваем количество потоков разумным числом
-    logging.info(f"Starting ThreadPoolExecutor with max_workers={max_workers}")
-    results = []
-
-    def chunkify(lst, n):
-        """Функция для разделения списка на n кусков"""
-        return [lst[i::n] for i in range(n)]
-
-    chunks = chunkify(df['Active_IP'], max_workers)
-
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = []
-        for chunk in chunks:
-            futures.extend([executor.submit(check_snmp, ip) for ip in chunk])
-
-        for future in as_completed(futures):
-            try:
-                result = future.result()
-                if result:
-                    results.append(result)
-            except Exception as e:
-                logging.error(f"Exception occurred: {e}")
-
-    # Преобразование списка результатов в DataFrame
-    printers_df_out = pd.DataFrame(results)
-
-    if not printers_df_out.empty:
-        # Обрезаем префиксы
-        printers_df_out.columns = printers_df_out.columns.str.replace(r'SNMPv2-SMI::mib-2.', '', regex=True)
-
-        # Переименуем столбцы
-        printers_df_out.rename(columns={
-            "25.3.2.1.3.1": 'model',
-            "43.5.1.1.17.1": 'sn',
-            'IP': 'ip'
-        }, inplace=True)
-
-    return printers_df_out
+async def find_printers(df):
+    tasks = [poll_snmp(row['Active_IP']) for index, row in df.iterrows()]
+    results = await asyncio.gather(*tasks)
+    printers = [{'IP': res[0], 'Model': res[1], 'Serial': res[2]} for res in results if res]
+    return pd.DataFrame(printers)
 
 
-dwh_subnets_df = get_data_from_dwh()
-scan_results_df = scan_subnets(dwh_subnets_df)
-print(scan_results_df)
+def main():
+    start_time = time.time()
+    clean_subnets_df = get_data_from_dwh()
+    active_ips_df = scan_subnets(clean_subnets_df)
+    print(active_ips_df)
+    loop = asyncio.get_event_loop()
+    printers_df = loop.run_until_complete(find_printers(active_ips_df))
 
-# Передаем правильный DataFrame в функцию find_printers
-printers_df = find_printers(scan_results_df)
+    print(printers_df)
+
+    end_time = time.time()
+    logging.info(f"Время выполнения: {end_time - start_time} секунд")
 
 
-# Выводим DataFrame для проверки
-print(printers_df)
-
-end_time = time.time()
-elapsed_time = (end_time - start_time) / 60
-print(f"Elapsed time: {elapsed_time:.2f} minutes")
+if __name__ == '__main__':
+    main()
