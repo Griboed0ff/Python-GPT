@@ -1,14 +1,13 @@
+[root@0001rtczabprx01 ~]# python3
 Python 3.6.8 (default, Nov 18 2021, 10:07:16)
 [GCC 4.8.5 20150623 (Red Hat 4.8.5-44.0.3)] on linux
 Type "help", "copyright", "credits" or "license" for more information.
 >>> import time
 >>> import ipaddress
-import pandas as pd
-from pysnmp.hlapi import *
-from concurrent.futures import ThreadPoolExecutor, as_completed
+>>> import pandas as pd
 
 def scan_network(ip: str) -> pd.DataFrame:
->>> import pandas as pd
+    print(f'''\nScanning Network: {ip}''')
     from scapy.all import ARP, Ether, srp
     network = ip  # сетевой адрес
     arp = ARP(pdst=network)
@@ -63,9 +62,11 @@ def check_snmp(host):
             model = var_binds[0][1]
             serial = var_binds[1][1]
             return {'IP Address': host, 'Model': str(model), 'Serial Number': str(serial)}
+
     except Exception as e:
         print(f"Exception: {e}")
         return None
+
 
 def find_printers(df):
     """ Находит все сетевые принтеры среди доступных адресов """
@@ -245,6 +246,7 @@ IndentationError: unexpected indent
     return {'IP Address': host, 'Model': str(model), 'Serial Number': str(serial)}
     ^
 IndentationError: unexpected indent
+>>>
 >>>     except Exception as e:
   File "<stdin>", line 1
     except Exception as e:
@@ -260,6 +262,7 @@ IndentationError: unexpected indent
     return None
     ^
 IndentationError: unexpected indent
+>>>
 >>>
 >>> def find_printers(df):
 ...     """ Находит все сетевые принтеры среди доступных адресов """
