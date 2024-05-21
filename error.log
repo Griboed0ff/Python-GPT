@@ -1,0 +1,82 @@
+[root@0001rtczabprx01 ~]# python3 -m pip install easysnmp
+WARNING: Running pip install with root privileges is generally not a good idea. Try `__main__.py install --user` instead.
+Collecting easysnmp
+  Using cached https://files.pythonhosted.org/packages/21/d1/6681212ad035c6421f529bbbea52330c4575979f5eea5e8aad6eb54bf45d/easysnmp-0.2.6.tar.gz
+Installing collected packages: easysnmp
+  Running setup.py install for easysnmp ... error
+    Complete output from command /bin/python3 -u -c "import setuptools, tokenize;__file__='/tmp/pip-build-v2399kup/easysnmp/setup.py';f=getattr(tokenize, 'open', open)(__file__);code=f.read().replace('\r\n', '\n');f.close();exec(compile(code, __file__, 'exec'))" install --record /tmp/pip-l26fdmeh-record/install-record.txt --single-version-externally-managed --compile:
+    running install
+    /root/.local/lib/python3.6/site-packages/setuptools/command/install.py:37: SetuptoolsDeprecationWarning: setup.py install is deprecated. Use build and pip and other standards-based tools.
+      setuptools.SetuptoolsDeprecationWarning,
+    running build
+    running build_py
+    creating build
+    creating build/lib.linux-x86_64-3.6
+    creating build/lib.linux-x86_64-3.6/easysnmp
+    copying easysnmp/__init__.py -> build/lib.linux-x86_64-3.6/easysnmp
+    copying easysnmp/session.py -> build/lib.linux-x86_64-3.6/easysnmp
+    copying easysnmp/utils.py -> build/lib.linux-x86_64-3.6/easysnmp
+    copying easysnmp/exceptions.py -> build/lib.linux-x86_64-3.6/easysnmp
+    copying easysnmp/compat.py -> build/lib.linux-x86_64-3.6/easysnmp
+    copying easysnmp/helpers.py -> build/lib.linux-x86_64-3.6/easysnmp
+    copying easysnmp/easy.py -> build/lib.linux-x86_64-3.6/easysnmp
+    copying easysnmp/variables.py -> build/lib.linux-x86_64-3.6/easysnmp
+    running build_ext
+    building 'easysnmp.interface' extension
+    creating build/temp.linux-x86_64-3.6
+    creating build/temp.linux-x86_64-3.6/easysnmp
+    gcc -pthread -Wno-unused-result -Wsign-compare -DNDEBUG -O2 -g -pipe -Wall -Wp,-D_FORTIFY_SOURCE=2 -fexceptions -fstack-protector-strong --param=ssp-buffer-size=4 -grecord-gcc-switches -m64 -mtune=generic -D_GNU_SOURCE -fPIC -fwrapv -fPIC -I/usr/include/python3.6m -c easysnmp/interface.c -o build/temp.linux-x86_64-3.6/easysnmp/interface.o
+    easysnmp/interface.c: In function ‘__match_algo’:
+    easysnmp/interface.c:130:23: error: ‘usmHMAC128SHA224AuthProtocol’ undeclared (first use in this function)
+                 *output = usmHMAC128SHA224AuthProtocol;
+                           ^
+    easysnmp/interface.c:130:23: note: each undeclared identifier is reported only once for each function it appears in
+    easysnmp/interface.c:137:23: error: ‘usmHMAC192SHA256AuthProtocol’ undeclared (first use in this function)
+                 *output = usmHMAC192SHA256AuthProtocol;
+                           ^
+    easysnmp/interface.c:146:23: error: ‘usmHMAC256SHA384AuthProtocol’ undeclared (first use in this function)
+                 *output = usmHMAC256SHA384AuthProtocol;
+                           ^
+    easysnmp/interface.c:153:23: error: ‘usmHMAC384SHA512AuthProtocol’ undeclared (first use in this function)
+                 *output = usmHMAC384SHA512AuthProtocol;
+                           ^
+    easysnmp/interface.c: In function ‘__snprint_value’:
+    easysnmp/interface.c:507:21: warning: comparison between signed and unsigned integer expressions [-Wsign-compare]
+                 if (len > buf_len)
+                         ^
+    easysnmp/interface.c: In function ‘__send_sync_pdu’:
+    easysnmp/interface.c:1267:40: warning: comparison between signed and unsigned integer expressions [-Wsign-compare]
+                     else if (last_errindex > (*response)->errindex)
+                                            ^
+    easysnmp/interface.c: In function ‘netsnmp_getnext’:
+    easysnmp/interface.c:2441:55: warning: comparison between signed and unsigned integer expressions [-Wsign-compare]
+             if (snmp_version == 1 && DEFAULT_NUM_BAD_OIDS < varlist_len)
+                                                           ^
+    easysnmp/interface.c: In function ‘netsnmp_walk’:
+    easysnmp/interface.c:2928:44: warning: comparison between signed and unsigned integer expressions [-Wsign-compare]
+                         if ((vars->name_length < oid_arr_len[varlist_ind]) ||
+                                                ^
+    easysnmp/interface.c: In function ‘netsnmp_bulkwalk’:
+    easysnmp/interface.c:3684:48: warning: comparison between signed and unsigned integer expressions [-Wsign-compare]
+                             if ((vars->name_length < oid_arr_len[varlist_ind]) ||
+                                                    ^
+    easysnmp/interface.c: In function ‘netsnmp_set’:
+    easysnmp/interface.c:4009:28: warning: comparison between signed and unsigned integer expressions [-Wsign-compare]
+                     if (tmplen >= sizeof(tmp_val_str))
+                                ^
+    In file included from easysnmp/interface.c:50:0:
+    easysnmp/interface.c: At top level:
+    easysnmp/simple_bitarray.h:217:20: warning: ‘bitarray_print_base16’ defined but not used [-Wunused-function]
+     static inline void bitarray_print_base16(bitarray *ba)
+                        ^
+    easysnmp/simple_bitarray.h:247:13: warning: ‘wno_unused_function_simple_bitarray_h’ defined but not used [-Wunused-function]
+     static void wno_unused_function_simple_bitarray_h(void)
+                 ^
+    easysnmp/interface.c:1470:14: warning: ‘py_netsnmp_attr_void_ptr’ defined but not used [-Wunused-function]
+     static void *py_netsnmp_attr_void_ptr(PyObject *obj, char *attr_name)
+                  ^
+    error: command 'gcc' failed with exit status 1
+
+    ----------------------------------------
+Command "/bin/python3 -u -c "import setuptools, tokenize;__file__='/tmp/pip-build-v2399kup/easysnmp/setup.py';f=getattr(tokenize, 'open', open)(__file__);code=f.read().replace('\r\n', '\n');f.close();exec(compile(code, __file__, 'exec'))" install --record /tmp/pip-l26fdmeh-record/install-record.txt --single-version-externally-managed --compile" failed with error code 1 in /tmp/pip-build-v2399kup/easysnmp/
+[root@0001rtczabprx01 ~]#
