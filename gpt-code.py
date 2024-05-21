@@ -1,7 +1,7 @@
 import time
 import ipaddress
 import pandas as pd
-from pysnmp.hlapi import SnmpEngine, CommunityData, UdpTransportTarget, ContextData, ObjectType, ObjectIdentity, getCmd
+from pysnmp.hlapi import *
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def scan_network(ip: str) -> pd.DataFrame:
@@ -38,32 +38,26 @@ OID_SERIAL = "1.3.6.1.2.1.1.2.0"  # Замени на корректный OID
 
 def check_snmp(host):
     """ Проверяет значение SNMP на указанном хосте """
-    try:
-        iterator = getCmd(
+    iterator = getCmd(
             SnmpEngine(),
-            CommunityData(SNMP_COMMUNITY, mpModel=0),
-            UdpTransportTarget((host, SNMP_PORT)),
+            CommunityData('public', mpModel=0),  # SNMPv1
+            UdpTransportTarget(('demo.snmplabs.com', 161)),
             ContextData(),
-            ObjectType(ObjectIdentity(OID_MODEL)),
-            ObjectType(ObjectIdentity(OID_SERIAL))
+            ObjectType(ObjectIdentity('SNMPv2-MIB', 'sysDescr', 0))
         )
 
-        error_indication, error_status, error_index, var_binds = next(iterator)
+    errorIndication, errorStatus, errorIndex, varBinds = next(iterator)
 
-        if error_indication:
-            print(f"Error: {error_indication}")
-            return None
-        elif error_status:
-            print(f"Error: {error_status.prettyPrint()}")
-            return None
-        else:
-            model = var_binds[0][1]
-            serial = var_binds[1][1]
-            return {'IP Address': host, 'Model': str(model), 'Serial Number': str(serial)}
-
-    except Exception as e:
-        print(f"Exception: {e}")
-        return None
+    if errorIndication:
+            print(errorIndication)
+    elif errorStatus:
+            print('%s at %s' % (
+                errorStatus.prettyPrint(),
+                errorIndex and varBinds[int(errorIndex) - 1] or '?'
+        ))
+    else:
+        for varBind in varBinds:
+            print(' = '.join([x.prettyPrint() for x in varBind]))
 
 
 def find_printers(df):
