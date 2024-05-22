@@ -101,16 +101,20 @@ def scan_subnets(clean_subnets_df):
 
 
 # Функция для выполнения SNMP-запроса
-async def snmp_get(ip, oid, community='public'):
+async def snmp_get(ip, oid, community='public', timeout=10):
     try:
-        async with aiosnmp.Snmp(host=ip, community=community, port=161) as snmp:
+        async with aiosnmp.Snmp(host=ip, community=community, port=161, timeout=timeout) as snmp:
             result = await snmp.get(oid)
             if result:
                 value = result[0].value
                 return value.decode('utf-8') if isinstance(value, bytes) else value
             else:
                 return None
+    except asyncio.TimeoutError:
+        print(f"Timeout error fetching SNMP data from {ip}")
+        return None
     except Exception as e:
+        print(f"Error fetching SNMP data from {ip}: {str(e)}")
         return None
 
 
@@ -118,9 +122,17 @@ async def snmp_get(ip, oid, community='public'):
 async def get_printer_info(ip):
     model_oid = '1.3.6.1.2.1.25.3.2.1.3.1'
     serial_oid = '1.3.6.1.2.1.43.5.1.1.17.1'
-    model = await snmp_get(ip, model_oid)
-    serial = await snmp_get(ip, serial_oid)
-    return model, serial
+    try:
+        model = await snmp_get(ip, model_oid)
+        serial = await snmp_get(ip, serial_oid)
+        if model and serial:
+            return model, serial
+        else:
+            print(f"Failed to get model or serial for IP: {ip}")
+            return None, None
+    except Exception as e:
+        print(f"Error getting printer info from {ip}: {str(e)}")
+        return None, None
 
 
 # Асинхронная функция для получения информации о принтерах по IP-адресам
@@ -142,15 +154,18 @@ async def discover_printers(active_ips_df):
 
     return pd.DataFrame(printer_info_list)
 
-# Основной блок выполнения
 if __name__ == '__main__':
+    start_time = time.time()
+
     dwh_subnets_df = get_data_from_dwh()
     scan_results_df = scan_subnets(dwh_subnets_df)
     print(scan_results_df)
 
-    # Асинхронно запускаем обнаружение принтеров и выводим результаты
-    printer_info_df = asyncio.run(discover_printers(scan_results_df))
-    print(printer_info_df)
+    try:
+        printer_info_df = asyncio.run(discover_printers(scan_results_df))
+        print(printer_info_df)
+    except Exception as e:
+        print(f"Error during discovering printers: {str(e)}")
 
     end_time = time.time()
     elapsed_time = (end_time - start_time) / 60
