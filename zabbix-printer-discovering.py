@@ -11,7 +11,7 @@ import ipaddress
 import configparser
 
 # Настройка логирования
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+# logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 start_time = time.time()
 config = configparser.ConfigParser()
 config.read('/data/data/0001rtczabprx01/zabbix-printer-discovering/zabbix-python.conf')
@@ -68,7 +68,7 @@ def get_data_from_dwh():
         valid_subnets_df = dataframe[dataframe['ip_subnet'].apply(is_valid_subnet)]
         return valid_subnets_df
     except Exception as e:
-        logging.error(f"Failed to get data from DWH. Error: {e}")
+        # logging.error(f"Failed to get data from DWH. Error: {e}")
         return pd.DataFrame()  # Возвращает пустой DataFrame при ошибке
 
 
@@ -89,18 +89,20 @@ def parse_output(output):
     return [line.split()[-1] for line in output.decode('utf-8').split('\n') if 'Discovered open port' in line]
 
 
-def scan_subnets(clean_subnets_df):
+def scan_subnets(clean_subnets_df, max_workers=70):
     active_ip_list = []
-    with ThreadPoolExecutor(max_workers=70) as executor:
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(scan_subnet, subnet) for subnet in clean_subnets_df['ip_subnet'].tolist()]
         for future in as_completed(futures):
-            subnet_result, ips = future.result()
-            for ip in ips:
-                active_ip_list.append({'Subnet': subnet_result, 'Active_IP': ip})
+            try:
+                subnet_result, ips = future.result()
+                for ip in ips:
+                    active_ip_list.append({'Subnet': subnet_result, 'Active_IP': ip})
+            except Exception:
+                continue
     return pd.DataFrame(active_ip_list)
 
 
-# Функция для выполнения SNMP-запроса
 async def snmp_get(ip, oid, community='public', timeout=10):
     try:
         async with aiosnmp.Snmp(host=ip, community=community, port=161, timeout=timeout) as snmp:
@@ -111,14 +113,11 @@ async def snmp_get(ip, oid, community='public', timeout=10):
             else:
                 return None
     except asyncio.TimeoutError:
-        print(f"Timeout error fetching SNMP data from {ip}")
         return None
-    except Exception as e:
-        print(f"Error fetching SNMP data from {ip}: {str(e)}")
+    except Exception:
         return None
 
 
-# Функция для получения информации о принтере
 async def get_printer_info(ip):
     model_oid = '1.3.6.1.2.1.25.3.2.1.3.1'
     serial_oid = '1.3.6.1.2.1.43.5.1.1.17.1'
@@ -128,12 +127,9 @@ async def get_printer_info(ip):
         if model and serial:
             return model, serial
         else:
-            print(f"Failed to get model or serial for IP: {ip}")
             return None, None
-    except Exception as e:
-        print(f"Error getting printer info from {ip}: {str(e)}")
+    except Exception:
         return None, None
-
 
 # Асинхронная функция для получения информации о принтерах по IP-адресам
 async def get_printer_info_async(printer_ips):
@@ -159,14 +155,14 @@ if __name__ == '__main__':
 
     dwh_subnets_df = get_data_from_dwh()
     scan_results_df = scan_subnets(dwh_subnets_df)
-    print(scan_results_df)
 
     try:
         printer_info_df = asyncio.run(discover_printers(scan_results_df))
+        # Печатаем только конечный датафрейм
         print(printer_info_df)
-    except Exception as e:
-        print(f"Error during discovering printers: {str(e)}")
+    except Exception:
+        pass
 
     end_time = time.time()
     elapsed_time = (end_time - start_time) / 60
-    print(f"Elapsed time: {elapsed_time:.2f} minutes")
+    # print(f"Elapsed time: {elapsed_time:.2f} minutes")
