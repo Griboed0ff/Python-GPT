@@ -61,7 +61,8 @@ def get_data_from_dwh():
         AND a.klart = '035' AND a.objek = t1.werks AND ca.atnam = 'ZS_M_REGION_MTS' and cw.atinn = ct.atinn
         AND cw.atzhl = ct.atzhl
         AND cw.adzhl = ct.adzhl and cw.atinn = a.atinn AND cw.atwrt = a.atwrt AND ct.spras = 'R' AND ct.adzhl = '0000'
-        and st.mandt = t1.mandt and st.ZZSTATUS_OP = w.ZZSTATUS_OP and adr.CLIENT = t1.mandt and adr.ADDRNUMBER = t1.ADRNR"""
+        and st.mandt = t1.mandt and st.ZZSTATUS_OP = w.ZZSTATUS_OP and adr.CLIENT = t1.mandt and adr.ADDRNUMBER = t1.ADRNR
+        and rownum < 500"""
         # Выполнить запрос к базе данных
         dataframe = pd.read_sql(dwh_query, engine)
         # Фильтровать допустимые подсети
