@@ -177,8 +177,6 @@ def process_printer_info(printer_df, subnets_df):
 if __name__ == '__main__':
     dwh_subnets_df = get_data_from_dwh()
     scan_results_df = scan_subnets(dwh_subnets_df)
-    print(dwh_subnets_df)
-    print(scan_results_df)
 
     try:
         printer_info_df = asyncio.run(discover_printers(scan_results_df))
