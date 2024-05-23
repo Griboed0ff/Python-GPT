@@ -10,9 +10,7 @@ import subprocess
 import ipaddress
 import configparser
 
-# Настройка логирования
-# logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-start_time = time.time()
+
 config = configparser.ConfigParser()
 config.read('/data/data/0001rtczabprx01/zabbix-printer-discovering/zabbix-python.conf')
 
@@ -63,14 +61,11 @@ def get_data_from_dwh():
         AND cw.adzhl = ct.adzhl and cw.atinn = a.atinn AND cw.atwrt = a.atwrt AND ct.spras = 'R' AND ct.adzhl = '0000'
         and st.mandt = t1.mandt and st.ZZSTATUS_OP = w.ZZSTATUS_OP and adr.CLIENT = t1.mandt and adr.ADDRNUMBER = t1.ADRNR
         and rownum < 50"""
-        # Выполнить запрос к базе данных
         dataframe = pd.read_sql(dwh_query, engine)
-        # Фильтровать допустимые подсети
         valid_subnets_df = dataframe[dataframe['ip_subnet'].apply(is_valid_subnet)]
         return valid_subnets_df
     except Exception as e:
-        # logging.error(f"Failed to get data from DWH. Error: {e}")
-        return pd.DataFrame()  # Возвращает пустой DataFrame при ошибке
+        return pd.DataFrame()  
 
 
 def get_ip_range(subnet):
@@ -133,14 +128,12 @@ async def get_printer_info(ip):
         return None, None
 
 
-# Асинхронная функция для получения информации о принтерах по IP-адресам
 async def get_printer_info_async(printer_ips):
     tasks = [asyncio.create_task(get_printer_info(ip)) for ip in printer_ips]
     results = await asyncio.gather(*tasks)
     return {ip: result for ip, result in zip(printer_ips, results)}
 
 
-# Модифицированная функция для асинхронного опроса принтеров и сохранения результатов в DataFrame
 async def discover_printers(active_ips_df):
     printer_ips = active_ips_df['Active_IP'].tolist()
     printer_info = await get_printer_info_async(printer_ips)
@@ -165,31 +158,23 @@ def process_printer_info(printer_df, subnets_df):
                 return subnet_row['ip_subnet'], subnet_row['atwtb'], subnet_row['sort2'], subnet_row['text_s'], name
         return None, None, None, None, None
 
-    # Применяем функцию ко всем строкам printer_info_df
     printer_df[['SUBNET', 'MR', 'OP', 'STATUS', 'NAME']] = printer_df.apply(
         lambda row: pd.Series(get_subnet_info(row['IP'], row['Serial'], subnets_df)),
         axis=1
     )
 
-    # Переименовываем столбцы
     printer_df.rename(columns={
         'Model': 'MODEL',
         'Serial': 'SN'
     }, inplace=True)
 
-    # Порядок столбцов
     columns_order = ['IP', 'MODEL', 'SN', 'SUBNET', 'MR', 'OP', 'STATUS', 'NAME']
     printer_df = printer_df[columns_order]
-
-    # Сохранение в файл CSV
-    printer_df.to_csv('discovered_printers.csv', index=False)
 
     return printer_df
 
 
 if __name__ == '__main__':
-    start_time = time.time()
-
     dwh_subnets_df = get_data_from_dwh()
     scan_results_df = scan_subnets(dwh_subnets_df)
     print(dwh_subnets_df)
@@ -202,7 +187,3 @@ if __name__ == '__main__':
 
     except Exception:
         pass
-
-    end_time = time.time()
-    elapsed_time = (end_time - start_time) / 60
-    # print(f"Elapsed time: {elapsed_time:.2f} minutes")
