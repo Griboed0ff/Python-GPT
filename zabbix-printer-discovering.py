@@ -61,7 +61,8 @@ def get_data_from_dwh():
         AND a.klart = '035' AND a.objek = t1.werks AND ca.atnam = 'ZS_M_REGION_MTS' and cw.atinn = ct.atinn
         AND cw.atzhl = ct.atzhl
         AND cw.adzhl = ct.adzhl and cw.atinn = a.atinn AND cw.atwrt = a.atwrt AND ct.spras = 'R' AND ct.adzhl = '0000'
-        and st.mandt = t1.mandt and st.ZZSTATUS_OP = w.ZZSTATUS_OP and adr.CLIENT = t1.mandt and adr.ADDRNUMBER = t1.ADRNR"""
+        and st.mandt = t1.mandt and st.ZZSTATUS_OP = w.ZZSTATUS_OP and adr.CLIENT = t1.mandt and adr.ADDRNUMBER = t1.ADRNR
+        and rownum < 50"""
         # Выполнить запрос к базе данных
         dataframe = pd.read_sql(dwh_query, engine)
         # Фильтровать допустимые подсети
@@ -151,15 +152,28 @@ async def discover_printers(active_ips_df):
 
     return pd.DataFrame(printer_info_list)
 
+
+def get_subnet_info(ip, subnets_df):
+    ip_addr = ipaddress.ip_address(ip)
+    for _, subnet_row in subnets_df.iterrows():
+        if ip_addr in ipaddress.ip_network(subnet_row['ip_subnet']):
+            return subnet_row['ip_subnet'], subnet_row['atwtb'], subnet_row['sort2'], subnet_row['text_s']
+    return None, None, None, None
+
+
 if __name__ == '__main__':
     start_time = time.time()
 
     dwh_subnets_df = get_data_from_dwh()
     scan_results_df = scan_subnets(dwh_subnets_df)
+    print(dwh_subnets_df)
     print(scan_results_df)
 
     try:
         printer_info_df = asyncio.run(discover_printers(scan_results_df))
+        printer_info_df[['ip_subnet', 'atwtb', 'sort2', 'text_s']] = printer_info_df['IP'].apply(
+            lambda ip: pd.Series(get_subnet_info(ip, dwh_subnets_df))
+        )
         # Печатаем только конечный датафрейм
         print(printer_info_df)
     except Exception:
