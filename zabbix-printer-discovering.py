@@ -61,8 +61,7 @@ def get_data_from_dwh():
         AND a.klart = '035' AND a.objek = t1.werks AND ca.atnam = 'ZS_M_REGION_MTS' and cw.atinn = ct.atinn
         AND cw.atzhl = ct.atzhl
         AND cw.adzhl = ct.adzhl and cw.atinn = a.atinn AND cw.atwrt = a.atwrt AND ct.spras = 'R' AND ct.adzhl = '0000'
-        and st.mandt = t1.mandt and st.ZZSTATUS_OP = w.ZZSTATUS_OP and adr.CLIENT = t1.mandt and adr.ADDRNUMBER = t1.ADRNR
-        and rownum < 500"""
+        and st.mandt = t1.mandt and st.ZZSTATUS_OP = w.ZZSTATUS_OP and adr.CLIENT = t1.mandt and adr.ADDRNUMBER = t1.ADRNR"""
         # Выполнить запрос к базе данных
         dataframe = pd.read_sql(dwh_query, engine)
         # Фильтровать допустимые подсети
@@ -80,7 +79,7 @@ def get_ip_range(subnet):
 
 def scan_subnet(subnet):
     ip_range = get_ip_range(subnet)
-    command = f"sudo masscan {ip_range} --ping --rate=300"
+    command = f"sudo masscan {ip_range} -p161,9100 --rate=300"
     scan_result = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     active_ips = parse_output(scan_result.stdout)
     return subnet, active_ips
@@ -132,6 +131,7 @@ async def get_printer_info(ip):
     except Exception:
         return None, None
 
+
 # Асинхронная функция для получения информации о принтерах по IP-адресам
 async def get_printer_info_async(printer_ips):
     tasks = [asyncio.create_task(get_printer_info(ip)) for ip in printer_ips]
@@ -156,6 +156,7 @@ if __name__ == '__main__':
 
     dwh_subnets_df = get_data_from_dwh()
     scan_results_df = scan_subnets(dwh_subnets_df)
+    print(scan_results_df)
 
     try:
         printer_info_df = asyncio.run(discover_printers(scan_results_df))
