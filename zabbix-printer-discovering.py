@@ -1,8 +1,6 @@
 import pandas as pd
 import asyncio
 import aiosnmp
-import logging
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import cx_Oracle
 from sqlalchemy import create_engine
@@ -60,12 +58,12 @@ def get_data_from_dwh():
         AND cw.atzhl = ct.atzhl
         AND cw.adzhl = ct.adzhl and cw.atinn = a.atinn AND cw.atwrt = a.atwrt AND ct.spras = 'R' AND ct.adzhl = '0000'
         and st.mandt = t1.mandt and st.ZZSTATUS_OP = w.ZZSTATUS_OP and adr.CLIENT = t1.mandt and adr.ADDRNUMBER = t1.ADRNR
-        and rownum < 50000"""
+        and rownum < 5000"""
         dataframe = pd.read_sql(dwh_query, engine)
         valid_subnets_df = dataframe[dataframe['ip_subnet'].apply(is_valid_subnet)]
         return valid_subnets_df
     except Exception as e:
-        return pd.DataFrame()  
+        return pd.DataFrame()
 
 
 def get_ip_range(subnet):
@@ -146,22 +144,47 @@ async def discover_printers(active_ips_df):
     return pd.DataFrame(printer_info_list)
 
 
-def process_printer_info(printer_df, subnets_df):
-    def get_subnet_info(ip, serial, subnets):
-        ip_addr = ipaddress.ip_address(ip)
-        for _, subnet_row in subnets.iterrows():
-            if ip_addr in ipaddress.ip_network(subnet_row['ip_subnet']):
-                op = subnet_row['sort2']
-                serial_last3 = serial[-3:]
-                ip_last = ip.split('.')[-1]
-                name = f"{op} Printer-{serial_last3}-{ip_last}"
-                return subnet_row['ip_subnet'], subnet_row['atwtb'], subnet_row['sort2'], subnet_row['text_s'], name
-        return None, None, None, None, None
+def validate_ip_subnet(ip_subnet):
+    try:
+        subnet = ipaddress.ip_network(ip_subnet, strict=False)
+        return subnet
+    except ValueError as e:
+        print(f"Invalid subnet {ip_subnet}: {e}")
+        return None
 
-    printer_df[['SUBNET', 'MR', 'OP', 'STATUS', 'NAME']] = printer_df.apply(
-        lambda row: pd.Series(get_subnet_info(row['IP'], row['Serial'], subnets_df)),
-        axis=1
-    )
+def get_subnet_info(row, subnets):
+    ip = row.IP
+    serial = row.Serial
+    ip_addr = ipaddress.ip_address(ip)
+
+    for _, subnet_row in subnets.iterrows():
+        subnet = validate_ip_subnet(subnet_row['ip_subnet'])
+        if subnet and ip_addr in subnet:
+            op = subnet_row['sort2']
+            serial_last3 = serial[-3:]
+            ip_last = ip.split('.')[-1]
+            name = f"{op} Printer-{serial_last3}-{ip_last}"
+            return {
+                'SUBNET': subnet_row['ip_subnet'],
+                'MR': subnet_row['atwtb'],
+                'OP': subnet_row['sort2'],
+                'STATUS': subnet_row['text_s'],
+                'NAME': name
+            }
+    return {
+        'SUBNET': None,
+        'MR': None,
+        'OP': None,
+        'STATUS': None,
+        'NAME': None
+    }
+
+def process_printer_info(printer_df, subnets_df):
+    with ThreadPoolExecutor() as executor:
+        result = list(executor.map(lambda row: get_subnet_info(row, subnets_df), printer_df.itertuples(index=False, name='Printer')))
+
+    subnet_info_df = pd.DataFrame(result)
+    printer_df = pd.concat([printer_df.reset_index(drop=True), subnet_info_df], axis=1)
 
     printer_df.rename(columns={
         'Model': 'MODEL',
@@ -175,16 +198,17 @@ def process_printer_info(printer_df, subnets_df):
 
 
 if __name__ == '__main__':
-    dwh_subnets_df = get_data_from_dwh()
+    # Пример загрузки данных
+    dwh_subnets_df = get_data_from_dwh()  # Ваш метод загрузки данных о подсетях
     print(dwh_subnets_df)
-    scan_results_df = scan_subnets(dwh_subnets_df)
+    scan_results_df = scan_subnets(dwh_subnets_df)  # Ваш метод сканирования подсетей
     print(scan_results_df)
 
     try:
-        printer_info_df = asyncio.run(discover_printers(scan_results_df))
+        printer_info_df = asyncio.run(discover_printers(scan_results_df))  # Ваш метод обнаружения принтеров
         print(printer_info_df)
         processed_printer_df = process_printer_info(printer_info_df, dwh_subnets_df)
         print(processed_printer_df)
 
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Произошла ошибка: {e}")
