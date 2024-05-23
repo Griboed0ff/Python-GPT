@@ -153,12 +153,38 @@ async def discover_printers(active_ips_df):
     return pd.DataFrame(printer_info_list)
 
 
-def get_subnet_info(ip, subnets_df):
-    ip_addr = ipaddress.ip_address(ip)
-    for _, subnet_row in subnets_df.iterrows():
-        if ip_addr in ipaddress.ip_network(subnet_row['ip_subnet']):
-            return subnet_row['ip_subnet'], subnet_row['atwtb'], subnet_row['sort2'], subnet_row['text_s']
-    return None, None, None, None
+def process_printer_info(printer_df, subnets_df):
+    def get_subnet_info(ip, serial, subnets):
+        ip_addr = ipaddress.ip_address(ip)
+        for _, subnet_row in subnets.iterrows():
+            if ip_addr in ipaddress.ip_network(subnet_row['ip_subnet']):
+                op = subnet_row['sort2']
+                serial_last3 = serial[-3:]
+                ip_last = ip.split('.')[-1]
+                name = f"{op} Printer-{serial_last3}-{ip_last}"
+                return subnet_row['ip_subnet'], subnet_row['atwtb'], subnet_row['sort2'], subnet_row['text_s'], name
+        return None, None, None, None, None
+
+    # Применяем функцию ко всем строкам printer_info_df
+    printer_df[['SUBNET', 'MR', 'OP', 'STATUS', 'NAME']] = printer_df.apply(
+        lambda row: pd.Series(get_subnet_info(row['IP'], row['Serial'], subnets_df)),
+        axis=1
+    )
+
+    # Переименовываем столбцы
+    printer_df.rename(columns={
+        'Model': 'MODEL',
+        'Serial': 'SN'
+    }, inplace=True)
+
+    # Порядок столбцов
+    columns_order = ['IP', 'MODEL', 'SN', 'SUBNET', 'MR', 'OP', 'STATUS', 'NAME']
+    printer_df = printer_df[columns_order]
+
+    # Сохранение в файл CSV
+    printer_df.to_csv('discovered_printers.csv', index=False)
+
+    return printer_df
 
 
 if __name__ == '__main__':
@@ -171,11 +197,9 @@ if __name__ == '__main__':
 
     try:
         printer_info_df = asyncio.run(discover_printers(scan_results_df))
-        printer_info_df[['ip_subnet', 'atwtb', 'sort2', 'text_s']] = printer_info_df['IP'].apply(
-            lambda ip: pd.Series(get_subnet_info(ip, dwh_subnets_df))
-        )
-        # Печатаем только конечный датафрейм
-        print(printer_info_df)
+        processed_printer_df = process_printer_info(printer_info_df, dwh_subnets_df)
+        print(processed_printer_df)
+
     except Exception:
         pass
 
