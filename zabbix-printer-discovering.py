@@ -7,6 +7,7 @@ from sqlalchemy import create_engine
 import subprocess
 import ipaddress
 import configparser
+from datetime import datetime
 
 
 config = configparser.ConfigParser()
@@ -58,7 +59,7 @@ def get_data_from_dwh():
         AND cw.atzhl = ct.atzhl
         AND cw.adzhl = ct.adzhl and cw.atinn = a.atinn AND cw.atwrt = a.atwrt AND ct.spras = 'R' AND ct.adzhl = '0000'
         and st.mandt = t1.mandt and st.ZZSTATUS_OP = w.ZZSTATUS_OP and adr.CLIENT = t1.mandt and adr.ADDRNUMBER = t1.ADRNR
-        and rownum < 5000"""
+        and rownum < 50"""
         dataframe = pd.read_sql(dwh_query, engine)
         valid_subnets_df = dataframe[dataframe['ip_subnet'].apply(is_valid_subnet)]
         return valid_subnets_df
@@ -149,46 +150,50 @@ async def discover_printers(active_ips_df, semaphore_limit=5000):
     return pd.DataFrame(printer_info_list)
 
 
-def validate_ip_subnet(ip_subnet):
+def get_subnet_info(row, subnets_df):
     try:
-        subnet = ipaddress.ip_network(ip_subnet, strict=False)
-        return subnet
-    except ValueError as e:
-        print(f"Invalid subnet {ip_subnet}: {e}")
-        return None
+        ip = row.IP
+        serial = row.Serial
+        ip_addr = ipaddress.ip_address(ip)
 
-def get_subnet_info(row, subnets):
-    ip = row.IP
-    serial = row.Serial
-    ip_addr = ipaddress.ip_address(ip)
+        for _, subnet_row in subnets_df.iterrows():
+            try:
+                subnet = ipaddress.ip_network(subnet_row['ip_subnet'], strict=False)
+                if ip_addr in subnet:
+                    op = subnet_row['sort2']
+                    serial_last3 = serial[-3:]
+                    ip_last = ip.split('.')[-1]
+                    name = f"{op} Printer-{serial_last3}-{ip_last}"
+                    return {
+                        'SUBNET': subnet_row['ip_subnet'],
+                        'MR': subnet_row['atwtb'],
+                        'OP': subnet_row['sort2'],
+                        'STATUS_OP': subnet_row['text_s'],
+                        'NAME': name,
+                        'TIMESTAMP': int(datetime.now().timestamp()),
+                        'STATUS': 0
+                    }
+            except ValueError as e:
+                print(f"Invalid subnet {subnet_row['ip_subnet']}: {e}")
+                continue
+    except Exception as e:
+        print(f"Error processing row {row}: {e}")
 
-    for _, subnet_row in subnets.iterrows():
-        subnet = validate_ip_subnet(subnet_row['ip_subnet'])
-        if subnet and ip_addr in subnet:
-            op = subnet_row['sort2']
-            serial_last3 = serial[-3:]
-            ip_last = ip.split('.')[-1]
-            name = f"{op} Printer-{serial_last3}-{ip_last}"
-            return {
-                'SUBNET': subnet_row['ip_subnet'],
-                'MR': subnet_row['atwtb'],
-                'OP': subnet_row['sort2'],
-                'STATUS': subnet_row['text_s'],
-                'NAME': name
-            }
     return {
         'SUBNET': None,
         'MR': None,
         'OP': None,
-        'STATUS': None,
-        'NAME': None
+        'STATUS_OP': None,
+        'NAME': None,
+        'TIMESTAMP': int(datetime.now().timestamp()),
+        'STATUS': 0
     }
 
 def process_printer_info(printer_df, subnets_df):
     with ThreadPoolExecutor() as executor:
-        result = list(executor.map(lambda row: get_subnet_info(row, subnets_df), printer_df.itertuples(index=False, name='Printer')))
+        results = list(executor.map(lambda row: get_subnet_info(row, subnets_df), printer_df.itertuples(index=False, name='Printer')))
 
-    subnet_info_df = pd.DataFrame(result)
+    subnet_info_df = pd.DataFrame(results)
     printer_df = pd.concat([printer_df.reset_index(drop=True), subnet_info_df], axis=1)
 
     printer_df.rename(columns={
@@ -196,10 +201,8 @@ def process_printer_info(printer_df, subnets_df):
         'Serial': 'SN'
     }, inplace=True)
 
-    columns_order = ['IP', 'MODEL', 'SN', 'SUBNET', 'MR', 'OP', 'STATUS', 'NAME']
-    printer_df = printer_df[columns_order]
-
-    return printer_df
+    columns_order = ['IP', 'MODEL', 'SN', 'SUBNET', 'MR', 'OP', 'STATUS_OP', 'NAME', 'TIMESTAMP', 'STATUS']
+    return printer_df[columns_order]
 
 
 if __name__ == '__main__':
