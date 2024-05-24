@@ -7,8 +7,6 @@ from sqlalchemy import create_engine
 import subprocess
 import ipaddress
 import configparser
-import dask.dataframe as dd
-from dask.diagnostics import ProgressBar
 
 
 config = configparser.ConfigParser()
