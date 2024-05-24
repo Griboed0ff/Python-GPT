@@ -7,6 +7,8 @@ from sqlalchemy import create_engine
 import subprocess
 import ipaddress
 import configparser
+import dask.dataframe as dd
+from dask.diagnostics import ProgressBar
 
 
 config = configparser.ConfigParser()
@@ -97,44 +99,49 @@ def scan_subnets(clean_subnets_df, max_workers=70):
     return pd.DataFrame(active_ip_list)
 
 
-async def snmp_get(ip, oid, community='public', timeout=10):
-    try:
-        async with aiosnmp.Snmp(host=ip, community=community, port=161, timeout=timeout) as snmp:
-            result = await snmp.get(oid)
-            if result:
-                value = result[0].value
-                return value.decode('utf-8') if isinstance(value, bytes) else value
-            else:
-                return None
-    except asyncio.TimeoutError:
-        return None
-    except Exception:
-        return None
+async def snmp_get(ip, oid, community='public', timeout=3, semaphore=None):
+    async with semaphore:
+        try:
+            async with aiosnmp.Snmp(host=ip, community=community, port=161, timeout=timeout) as snmp:
+                result = await snmp.get(oid)
+                if result:
+                    value = result[0].value
+                    return value.decode('utf-8') if isinstance(value, bytes) else value
+                else:
+                    return None
+        except asyncio.TimeoutError:
+            return None
+        except Exception as e:
+            logger.error(f"Error getting SNMP data for {ip}: {e}")
+            return None
 
 
-async def get_printer_info(ip):
+async def get_printer_info(ip, semaphore):
     model_oid = '1.3.6.1.2.1.25.3.2.1.3.1'
     serial_oid = '1.3.6.1.2.1.43.5.1.1.17.1'
     try:
-        model = await snmp_get(ip, model_oid)
-        serial = await snmp_get(ip, serial_oid)
+        model_task = asyncio.create_task(snmp_get(ip, model_oid, semaphore=semaphore))
+        serial_task = asyncio.create_task(snmp_get(ip, serial_oid, semaphore=semaphore))
+        model, serial = await asyncio.gather(model_task, serial_task)
         if model and serial:
             return model, serial
         else:
             return None, None
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error getting printer info for {ip}: {e}")
         return None, None
 
 
-async def get_printer_info_async(printer_ips):
-    tasks = [asyncio.create_task(get_printer_info(ip)) for ip in printer_ips]
+async def get_printer_info_async(printer_ips, semaphore):
+    tasks = [asyncio.create_task(get_printer_info(ip, semaphore)) for ip in printer_ips]
     results = await asyncio.gather(*tasks)
     return {ip: result for ip, result in zip(printer_ips, results)}
 
 
-async def discover_printers(active_ips_df):
+async def discover_printers(active_ips_df, semaphore_limit=5000):
     printer_ips = active_ips_df['Active_IP'].tolist()
-    printer_info = await get_printer_info_async(printer_ips)
+    semaphore = asyncio.Semaphore(semaphore_limit)
+    printer_info = await get_printer_info_async(printer_ips, semaphore)
 
     printer_info_list = []
     for printer_ip, (model, serial) in printer_info.items():
@@ -198,14 +205,13 @@ def process_printer_info(printer_df, subnets_df):
 
 
 if __name__ == '__main__':
-    # Пример загрузки данных
-    dwh_subnets_df = get_data_from_dwh()  # Ваш метод загрузки данных о подсетях
+    dwh_subnets_df = get_data_from_dwh()
     print(dwh_subnets_df)
-    scan_results_df = scan_subnets(dwh_subnets_df)  # Ваш метод сканирования подсетей
+    scan_results_df = scan_subnets(dwh_subnets_df)
     print(scan_results_df)
 
     try:
-        printer_info_df = asyncio.run(discover_printers(scan_results_df))  # Ваш метод обнаружения принтеров
+        printer_info_df = asyncio.run(discover_printers(scan_results_df))
         print(printer_info_df)
         processed_printer_df = process_printer_info(printer_info_df, dwh_subnets_df)
         print(processed_printer_df)
