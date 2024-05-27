@@ -168,10 +168,10 @@ async def discover_printers(active_ips_df, semaphore_limit=5000):
 
 def get_subnet_info(row, subnets_df):
     try:
-        ip = row.IP
-        serial = row.SN
+        ip = row.get('IP')
+        serial = row.get('SN')
         ip_addr = ipaddress.ip_address(ip)
-        mac = row.MAC
+        mac = row.get('MAC')
 
         for _, subnet_row in subnets_df.iterrows():
             try:
@@ -187,8 +187,7 @@ def get_subnet_info(row, subnets_df):
                         'MR': subnet_row['atwtb'],
                         'OP': subnet_row['sort2'],
                         'STATUS_OP': subnet_row['text_s'],
-                        'NAME': name,
-                        'MACNAME': macname,
+                        'NAME': name,'MACNAME': macname,
                         'TIMESTAMP': int(datetime.now().timestamp()),
                     }
             except ValueError as e:
