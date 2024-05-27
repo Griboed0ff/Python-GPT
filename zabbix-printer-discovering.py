@@ -59,7 +59,7 @@ def get_data_from_dwh():
         AND cw.atzhl = ct.atzhl
         AND cw.adzhl = ct.adzhl and cw.atinn = a.atinn AND cw.atwrt = a.atwrt AND ct.spras = 'R' AND ct.adzhl = '0000'
         and st.mandt = t1.mandt and st.ZZSTATUS_OP = w.ZZSTATUS_OP and adr.CLIENT = t1.mandt and adr.ADDRNUMBER = t1.ADRNR
-        and rownum < 50"""
+        and rownum < 5"""
         dataframe = pd.read_sql(dwh_query, engine)
         valid_subnets_df = dataframe[dataframe['ip_subnet'].apply(is_valid_subnet)]
         return valid_subnets_df
@@ -111,24 +111,26 @@ async def snmp_get(ip, oid, community='public', timeout=3, semaphore=None):
         except asyncio.TimeoutError:
             return None
         except Exception as e:
-            logger.error(f"Error getting SNMP data for {ip}: {e}")
+            print(f"Error getting SNMP data for {ip}: {e}")
             return None
 
 
 async def get_printer_info(ip, semaphore):
     model_oid = '1.3.6.1.2.1.25.3.2.1.3.1'
     serial_oid = '1.3.6.1.2.1.43.5.1.1.17.1'
+    mac_oid = '1.3.6.1.2.1.2.2.1.6.2'
     try:
         model_task = asyncio.create_task(snmp_get(ip, model_oid, semaphore=semaphore))
         serial_task = asyncio.create_task(snmp_get(ip, serial_oid, semaphore=semaphore))
-        model, serial = await asyncio.gather(model_task, serial_task)
-        if model and serial:
-            return model, serial
+        mac_task = asyncio.create_task(snmp_get(ip, mac_oid, semaphore=semaphore))
+        model, serial, mac = await asyncio.gather(model_task, serial_task, mac_task)
+        if model and serial and mac:
+            return model, serial, mac
         else:
-            return None, None
+            return None, None, None
     except Exception as e:
-        logger.error(f"Error getting printer info for {ip}: {e}")
-        return None, None
+        print(f"Error getting printer info for {ip}: {e}")
+        return None, None, None
 
 
 async def get_printer_info_async(printer_ips, semaphore):
@@ -143,9 +145,9 @@ async def discover_printers(active_ips_df, semaphore_limit=5000):
     printer_info = await get_printer_info_async(printer_ips, semaphore)
 
     printer_info_list = []
-    for printer_ip, (model, serial) in printer_info.items():
+    for printer_ip, (model, serial, mac) in printer_info.items():
         if model and serial:
-            printer_info_list.append({'IP': printer_ip, 'Model': model, 'Serial': serial})
+            printer_info_list.append({'IP': printer_ip, 'MODEL': model, 'SN': serial, 'MAC': mac})
 
     return pd.DataFrame(printer_info_list)
 
@@ -153,7 +155,7 @@ async def discover_printers(active_ips_df, semaphore_limit=5000):
 def get_subnet_info(row, subnets_df):
     try:
         ip = row.IP
-        serial = row.Serial
+        serial = row.SN
         ip_addr = ipaddress.ip_address(ip)
 
         for _, subnet_row in subnets_df.iterrows():
@@ -189,6 +191,7 @@ def get_subnet_info(row, subnets_df):
         'STATUS': 0
     }
 
+
 def process_printer_info(printer_df, subnets_df):
     with ThreadPoolExecutor() as executor:
         results = list(executor.map(lambda row: get_subnet_info(row, subnets_df), printer_df.itertuples(index=False, name='Printer')))
@@ -196,13 +199,56 @@ def process_printer_info(printer_df, subnets_df):
     subnet_info_df = pd.DataFrame(results)
     printer_df = pd.concat([printer_df.reset_index(drop=True), subnet_info_df], axis=1)
 
-    printer_df.rename(columns={
-        'Model': 'MODEL',
-        'Serial': 'SN'
-    }, inplace=True)
-
-    columns_order = ['IP', 'MODEL', 'SN', 'SUBNET', 'MR', 'OP', 'STATUS_OP', 'NAME', 'TIMESTAMP', 'STATUS']
+    columns_order = ['IP', 'MODEL', 'SN', 'MAC', 'SUBNET', 'MR', 'OP', 'STATUS_OP', 'NAME', 'TIMESTAMP', 'STATUS']
     return printer_df[columns_order]
+
+
+def get_db_connection():
+    """Функция для получения подключения к базе данных."""
+    try:
+        zbx_username = config.get('zabdbmaster', 'zabbix_db_user')
+        zbx_password = config.get('zabdbmaster', 'zabbix_db_password')
+        zbx_host = config.get('zabdbmaster', 'zabbix_db_host')
+        zbx_port = config.get('zabdbmaster', 'zabbix_db_port')
+        zbx_db = config.get('zabdbmaster', 'zabbix_db')
+
+        # Формируем строку подключения с использованием f-строк
+        connection_string = f'postgresql://{zbx_username}:{zbx_password}@{zbx_host}:{zbx_port}/{zbx_db}'
+        engine = create_engine(connection_string)
+        return engine
+    except configparser.NoSectionError as nse:
+        raise ValueError(f"Ошибка: Конфигурационный файл не содержит секцию: {nse.section}")
+    except configparser.NoOptionError as noe:
+        raise ValueError(f"Ошибка: Конфигурационный файл не содержит опцию: {noe.option} в секции: {noe.section}")
+    except Exception as e:
+        raise ValueError(f"Ошибка при получении подключения к базе данных: {str(e)}")
+
+
+def get_data_from_zbx():
+    """Функция для получения данных из таблицы printers."""
+    try:
+        engine = get_db_connection()
+        zbx_query = "SELECT * FROM printers"
+        zbx_data = pd.read_sql(zbx_query, engine)
+        return zbx_data
+    except ValueError as ve:
+        print(str(ve))
+        return pd.DataFrame()  # Возвращаем пустой DataFrame при ошибке
+    except Exception as e:
+        print(f"Общая ошибка: {str(e)}")
+        return pd.DataFrame()  # Возвращаем пустой DataFrame при ошибке
+
+
+def get_data_to_zbx(df, table_name):
+    """Функция для загрузки данных в таблицу базы данных."""
+    try:
+        engine = get_db_connection()
+        df.to_sql(table_name, engine, if_exists='replace', index=False)
+        return f"Данные успешно загружены в таблицу {table_name}"
+    except ValueError as ve:
+        return str(ve)  # Возвращаем текст ошибки, если была проблема с подключением к базе данных
+    except Exception as e:
+        return f"Ошибка: {str(e)}"
 
 
 if __name__ == '__main__':
@@ -216,6 +262,8 @@ if __name__ == '__main__':
         print(printer_info_df)
         processed_printer_df = process_printer_info(printer_info_df, dwh_subnets_df)
         print(processed_printer_df)
+        result_message = get_data_to_zbx(processed_printer_df, 'printers')
+        print(result_message)
 
     except Exception as e:
         print(f"Произошла ошибка: {e}")
