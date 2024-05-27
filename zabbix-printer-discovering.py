@@ -105,7 +105,14 @@ async def snmp_get(ip, oid, community='public', timeout=3, semaphore=None):
                 result = await snmp.get(oid)
                 if result:
                     value = result[0].value
-                    return value.decode('utf-8') if isinstance(value, bytes) else value
+                    # Коснемся декодирования по типу данных
+                    if isinstance(value, bytes):
+                        try:
+                            return value.decode('utf-8')  # Попробовать декодировать как текст
+                        except UnicodeDecodeError:
+                            return ':'.join(f'{byte:02x}' for byte in value)  # Возвращаем в виде MAC-адреса
+                    else:
+                        return value
                 else:
                     return None
         except asyncio.TimeoutError:
