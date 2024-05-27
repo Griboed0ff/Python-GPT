@@ -181,7 +181,7 @@ def get_subnet_info(row, subnets_df):
                     serial_last3 = serial[-3:]
                     ip_last = ip.split('.')[-1]
                     name = f"{op} Printer-{serial_last3}-{ip_last}"
-                    macname = mac.replace(':', '')
+                    macname = mac.replace(':', '').encode('utf-8')
                     return {
                         'SUBNET': subnet_row['ip_subnet'],
                         'MR': subnet_row['atwtb'],
