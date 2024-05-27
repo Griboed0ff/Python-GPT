@@ -8,8 +8,11 @@ import subprocess
 import ipaddress
 import configparser
 from datetime import datetime
+import logging
 
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 config = configparser.ConfigParser()
 config.read('/data/data/0001rtczabprx01/zabbix-printer-discovering/zabbix-python.conf')
 
@@ -59,7 +62,7 @@ def get_data_from_dwh():
         AND cw.atzhl = ct.atzhl
         AND cw.adzhl = ct.adzhl and cw.atinn = a.atinn AND cw.atwrt = a.atwrt AND ct.spras = 'R' AND ct.adzhl = '0000'
         and st.mandt = t1.mandt and st.ZZSTATUS_OP = w.ZZSTATUS_OP and adr.CLIENT = t1.mandt and adr.ADDRNUMBER = t1.ADRNR
-        and rownum < 5"""
+        and rownum < 5000"""
         dataframe = pd.read_sql(dwh_query, engine)
         valid_subnets_df = dataframe[dataframe['ip_subnet'].apply(is_valid_subnet)]
         return valid_subnets_df
@@ -108,9 +111,13 @@ async def snmp_get(ip, oid, community='public', timeout=3, semaphore=None):
                     # Коснемся декодирования по типу данных
                     if isinstance(value, bytes):
                         try:
-                            return value.decode('utf-8')  # Попробовать декодировать как текст
+                            decoded_value = value.decode('utf-8')
+                            logger.debug(f"Decoded UTF-8 value for {ip}, OID {oid}: {decoded_value}")
+                            return decoded_value
                         except UnicodeDecodeError:
-                            return ':'.join(f'{byte:02x}' for byte in value)  # Возвращаем в виде MAC-адреса
+                            mac_value = ':'.join(f'{byte:02x}' for byte in value)
+                            logger.debug(f"Interpreted as MAC address for {ip}, OID {oid}: {mac_value}")
+                            return mac_value
                     else:
                         return value
                 else:
@@ -118,7 +125,7 @@ async def snmp_get(ip, oid, community='public', timeout=3, semaphore=None):
         except asyncio.TimeoutError:
             return None
         except Exception as e:
-            print(f"Error getting SNMP data for {ip}: {e}")
+            logger.error(f"Error getting SNMP data for {ip}: {e}", exc_info=True)
             return None
 
 
@@ -164,6 +171,7 @@ def get_subnet_info(row, subnets_df):
         ip = row.IP
         serial = row.SN
         ip_addr = ipaddress.ip_address(ip)
+        mac = row.MAC
 
         for _, subnet_row in subnets_df.iterrows():
             try:
@@ -173,14 +181,15 @@ def get_subnet_info(row, subnets_df):
                     serial_last3 = serial[-3:]
                     ip_last = ip.split('.')[-1]
                     name = f"{op} Printer-{serial_last3}-{ip_last}"
+                    macname = mac.replace(':', '')
                     return {
                         'SUBNET': subnet_row['ip_subnet'],
                         'MR': subnet_row['atwtb'],
                         'OP': subnet_row['sort2'],
                         'STATUS_OP': subnet_row['text_s'],
                         'NAME': name,
+                        'MACNAME': macname,
                         'TIMESTAMP': int(datetime.now().timestamp()),
-                        'STATUS': 0
                     }
             except ValueError as e:
                 print(f"Invalid subnet {subnet_row['ip_subnet']}: {e}")
@@ -194,8 +203,8 @@ def get_subnet_info(row, subnets_df):
         'OP': None,
         'STATUS_OP': None,
         'NAME': None,
+        'MACNAME': None,
         'TIMESTAMP': int(datetime.now().timestamp()),
-        'STATUS': 0
     }
 
 
@@ -206,7 +215,7 @@ def process_printer_info(printer_df, subnets_df):
     subnet_info_df = pd.DataFrame(results)
     printer_df = pd.concat([printer_df.reset_index(drop=True), subnet_info_df], axis=1)
 
-    columns_order = ['IP', 'MODEL', 'SN', 'MAC', 'SUBNET', 'MR', 'OP', 'STATUS_OP', 'NAME', 'TIMESTAMP', 'STATUS']
+    columns_order = ['IP', 'MODEL', 'SN', 'MACNAME', 'SUBNET', 'MR', 'OP', 'STATUS_OP', 'NAME', 'TIMESTAMP']
     return printer_df[columns_order]
 
 
