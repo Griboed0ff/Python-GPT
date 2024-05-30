@@ -9,7 +9,6 @@ import ipaddress
 import configparser
 from datetime import datetime
 import logging
-import re
 from pysnmp.hlapi.asyncio import *
 
 logger = logging.getLogger(__name__)
@@ -18,6 +17,7 @@ config = configparser.ConfigParser()
 config.read('/data/data/0001rtczabprx01/zabbix-printer-discovering/zabbix-python.conf')
 
 
+# Функция используется для проверки корректности подсети.
 def is_valid_subnet(subnet):
     try:
         ipaddress.ip_network(subnet, strict=False)
@@ -26,6 +26,7 @@ def is_valid_subnet(subnet):
         return False
 
 
+# Функция используется для получения данных из DWH и фильтрации подсетей.
 def get_data_from_dwh():
     try:
         dwh_username = config.get('dwh_db', 'dwh_db_user')
@@ -71,11 +72,13 @@ def get_data_from_dwh():
         return pd.DataFrame()
 
 
+# Функция возвращает диапазон IP-адресов для конкретной подсети.
 def get_ip_range(subnet):
     network = ipaddress.ip_network(subnet, strict=False)
     return f"{network[0]}-{network[-1]}"
 
 
+# Функция сканирует подсеть и возвращает IP-адреса с открытыми портами.
 def scan_subnet(subnet):
     ip_range = get_ip_range(subnet)
     command = f"sudo masscan {ip_range} -p161,9100 --rate=300"
@@ -84,10 +87,12 @@ def scan_subnet(subnet):
     return subnet, active_ips
 
 
+# Функция парсит выходной результат masscan и возвращает список активных IP-адресов.
 def parse_output(output):
     return [line.split()[-1] for line in output.decode('utf-8').split('\n') if 'Discovered open port' in line]
 
 
+# Функция выполняет параллельное сканирование подсетей и возвращает DataFrame с активными IP-адресами.
 def scan_subnets(clean_subnets_df, max_workers=70):
     active_ip_list = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -102,6 +107,7 @@ def scan_subnets(clean_subnets_df, max_workers=70):
     return pd.DataFrame(active_ip_list)
 
 
+# Асинхронная функция для получения MAC-адреса по SNMP.
 async def get_mac_with_pysnmp(ip, community='public', oid='1.3.6.1.2.1.2.2.1.6.2', timeout=3):
     snmp_engine = SnmpEngine()
     community_data = CommunityData(community, mpModel=0)
@@ -128,6 +134,7 @@ async def get_mac_with_pysnmp(ip, community='public', oid='1.3.6.1.2.1.2.2.1.6.2
             return ':'.join(f'{byte:02x}' for byte in value.asOctets())
 
 
+# Асинхронная функция для получения данных по SNMP c использованием библиотеки aiosnmp.
 async def snmp_get(ip, oid, community='public', timeout=3, semaphore=None):
     if oid == '1.3.6.1.2.1.2.2.1.6.2':  # Специфический oid для MAC
         mac_value = await get_mac_with_pysnmp(ip, community, oid, timeout)
@@ -160,6 +167,7 @@ async def snmp_get(ip, oid, community='public', timeout=3, semaphore=None):
             return None
 
 
+# Асинхронная функция для получения информации о принтере (модель, серийный номер, MAC-адрес).
 async def get_printer_info(ip, semaphore):
     model_oid = '1.3.6.1.2.1.25.3.2.1.3.1'
     serial_oid = '1.3.6.1.2.1.43.5.1.1.17.1'
@@ -179,6 +187,7 @@ async def get_printer_info(ip, semaphore):
         return None, None, None
 
 
+# Асинхронная функция для обнаружения принтеров на основе активных IP-адресов.
 async def discover_printers(active_ips_df, semaphore_limit=1000):
     printer_ips = active_ips_df['Active_IP'].tolist()
     semaphore = asyncio.Semaphore(semaphore_limit)
@@ -196,8 +205,8 @@ async def discover_printers(active_ips_df, semaphore_limit=1000):
     return pd.DataFrame(printer_info_list)
 
 
+# Форматирует MAC-адрес в стандартный вид
 def format_mac_address(mac):
-    """ Форматирует MAC-адрес в стандартный вид """
     if mac:
         mac = mac.strip().lower().replace(' ', '-').replace(':', '-')
         mac = re.sub(r'[^a-f0-9-]', '', mac)  # Удаляет недопустимые символы
@@ -206,6 +215,7 @@ def format_mac_address(mac):
     return None
 
 
+# Функция для получения информации о подсети для заданного IP.
 def get_subnet_info(row, subnets_df):
     try:
         ip = row.IP
@@ -239,7 +249,7 @@ def get_subnet_info(row, subnets_df):
         'TIMESTAMP': int(datetime.now().timestamp()),
     }
 
-
+# Функция для обработки информации о принтерах и добавления информации о подсетях.
 def process_printer_info(printer_df, subnets_df):
     with ThreadPoolExecutor() as executor:
         results = list(executor.map(lambda row: get_subnet_info(row, subnets_df), printer_df.itertuples(index=False, name='Printer')))
@@ -251,8 +261,8 @@ def process_printer_info(printer_df, subnets_df):
     return printer_df[columns_order]
 
 
+# Функция для получения подключения к базе данных Zabbix.
 def get_db_connection():
-    """Функция для получения подключения к базе данных."""
     try:
         zbx_username = config.get('zabdbmaster', 'zabbix_db_user')
         zbx_password = config.get('zabdbmaster', 'zabbix_db_password')
@@ -272,8 +282,8 @@ def get_db_connection():
         raise ValueError(f"Ошибка при получении подключения к базе данных: {str(e)}")
 
 
+# Функция для получения данных из таблицы printers.
 def get_data_from_zbx():
-    """Функция для получения данных из таблицы printers."""
     try:
         engine = get_db_connection()
         zbx_query = "SELECT * FROM printers"
@@ -287,7 +297,7 @@ def get_data_from_zbx():
         return pd.DataFrame()  # Возвращаем пустой DataFrame при ошибке
 
 
-# Функция для очистки данных
+# Функция для очистки данных в DataFrame от недопустимых символов.
 def cleanse_data(df):
     def clean_cell(cell):
         # Удаляем все недопустимые символы
@@ -299,8 +309,8 @@ def cleanse_data(df):
     return df.apply(lambda col: col.apply(clean_cell))
 
 
+# Функция для загрузки данных в таблицу базы данных.
 def get_data_to_zbx(df, table_name):
-    """Функция для загрузки данных в таблицу базы данных."""
     try:
         # Очищаем данные перед вставкой
         df = cleanse_data(df)
