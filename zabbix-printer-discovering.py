@@ -9,10 +9,11 @@ import ipaddress
 import configparser
 from datetime import datetime
 import logging
+import re
+from pysnmp.hlapi.asyncio import *
 
-
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
 config = configparser.ConfigParser()
 config.read('/data/data/0001rtczabprx01/zabbix-printer-discovering/zabbix-python.conf')
 
@@ -101,18 +102,47 @@ def scan_subnets(clean_subnets_df, max_workers=70):
     return pd.DataFrame(active_ip_list)
 
 
+async def get_mac_with_pysnmp(ip, community='public', oid='1.3.6.1.2.1.2.2.1.6.2', timeout=3):
+    snmp_engine = SnmpEngine()
+    community_data = CommunityData(community, mpModel=0)
+    udp_transport_target = UdpTransportTarget((ip, 161), timeout=timeout)
+    context_data = ContextData()
+
+    error_indication, error_status, error_index, var_binds = await getCmd(
+        snmp_engine,
+        community_data,
+        udp_transport_target,
+        context_data,
+        ObjectType(ObjectIdentity(oid))
+    )
+
+    if error_indication:
+        logger.error(f"SNMP error: {error_indication}")
+        return None
+    elif error_status:
+        logger.error(f"SNMP error: {error_status}")
+        return None
+    else:
+        for var_bind in var_binds:
+            _, value = var_bind
+            return ':'.join(f'{byte:02x}' for byte in value.asOctets())
+
+
 async def snmp_get(ip, oid, community='public', timeout=3, semaphore=None):
-    async with semaphore:
+    if oid == '1.3.6.1.2.1.2.2.1.6.2':  # Специфический oid для MAC
+        mac_value = await get_mac_with_pysnmp(ip, community, oid, timeout)
+        if mac_value:
+            return mac_value
+
+    async with (semaphore or asyncio.Semaphore()):
         try:
             async with aiosnmp.Snmp(host=ip, community=community, port=161, timeout=timeout) as snmp:
                 result = await snmp.get(oid)
                 if result:
                     value = result[0].value
-                    # Коснемся декодирования по типу данных
                     if isinstance(value, bytes):
                         try:
                             decoded_value = value.decode('utf-8')
-                            logger.debug(f"Decoded UTF-8 value for {ip}, OID {oid}: {decoded_value}")
                             return decoded_value
                         except UnicodeDecodeError:
                             mac_value = ':'.join(f'{byte:02x}' for byte in value)
@@ -123,6 +153,7 @@ async def snmp_get(ip, oid, community='public', timeout=3, semaphore=None):
                 else:
                     return None
         except asyncio.TimeoutError:
+            logger.error(f"Timeout getting SNMP data for {ip}")
             return None
         except Exception as e:
             logger.error(f"Error getting SNMP data for {ip}: {e}", exc_info=True)
@@ -141,60 +172,63 @@ async def get_printer_info(ip, semaphore):
         if model and serial and mac:
             return model, serial, mac
         else:
+            logger.error(f"Failed to get some of the printer info for {ip}: model={model}, serial={serial}, mac={mac}")
             return None, None, None
     except Exception as e:
-        print(f"Error getting printer info for {ip}: {e}")
+        logger.error(f"Error getting printer info for {ip}: {e}", exc_info=True)
         return None, None, None
 
 
-async def get_printer_info_async(printer_ips, semaphore):
-    tasks = [asyncio.create_task(get_printer_info(ip, semaphore)) for ip in printer_ips]
-    results = await asyncio.gather(*tasks)
-    return {ip: result for ip, result in zip(printer_ips, results)}
-
-
-async def discover_printers(active_ips_df, semaphore_limit=5000):
+async def discover_printers(active_ips_df, semaphore_limit=1000):
     printer_ips = active_ips_df['Active_IP'].tolist()
     semaphore = asyncio.Semaphore(semaphore_limit)
-    printer_info = await get_printer_info_async(printer_ips, semaphore)
+
+    tasks = [asyncio.create_task(get_printer_info(ip, semaphore)) for ip in printer_ips]
+    results = await asyncio.gather(*tasks)
+    printer_info = {ip: result for ip, result in zip(printer_ips, results)}
 
     printer_info_list = []
     for printer_ip, (model, serial, mac) in printer_info.items():
         if model and serial:
-            printer_info_list.append({'IP': printer_ip, 'MODEL': model, 'SN': serial, 'MAC': mac})
+            formatted_mac = format_mac_address(mac)
+            printer_info_list.append({'IP': printer_ip, 'MODEL': model, 'SN': serial, 'MAC': formatted_mac})
 
     return pd.DataFrame(printer_info_list)
 
 
+def format_mac_address(mac):
+    """ Форматирует MAC-адрес в стандартный вид """
+    if mac:
+        mac = mac.strip().lower().replace(' ', '-').replace(':', '-')
+        mac = re.sub(r'[^a-f0-9-]', '', mac)  # Удаляет недопустимые символы
+        octets = re.findall(r'.{2}', mac)
+        return ':'.join(octets) if len(octets) == 6 else mac
+    return None
+
+
 def get_subnet_info(row, subnets_df):
     try:
-        ip = row.get('IP')
-        serial = row.get('SN')
+        ip = row.IP
+        serial = row.SN
         ip_addr = ipaddress.ip_address(ip)
-        mac = row.get('MAC')
 
         for _, subnet_row in subnets_df.iterrows():
-            try:
-                subnet = ipaddress.ip_network(subnet_row['ip_subnet'], strict=False)
-                if ip_addr in subnet:
-                    op = subnet_row['sort2']
-                    serial_last3 = serial[-3:]
-                    ip_last = ip.split('.')[-1]
-                    name = f"{op} Printer-{serial_last3}-{ip_last}"
-                    macname = mac.replace(':', '').encode('utf-8')
-                    return {
-                        'SUBNET': subnet_row['ip_subnet'],
-                        'MR': subnet_row['atwtb'],
-                        'OP': subnet_row['sort2'],
-                        'STATUS_OP': subnet_row['text_s'],
-                        'NAME': name,'MACNAME': macname,
-                        'TIMESTAMP': int(datetime.now().timestamp()),
-                    }
-            except ValueError as e:
-                print(f"Invalid subnet {subnet_row['ip_subnet']}: {e}")
-                continue
+            subnet = ipaddress.ip_network(subnet_row['ip_subnet'], strict=False)
+            if ip_addr in subnet:
+                op = subnet_row['sort2']
+                serial_last3 = serial[-3:]
+                ip_last = ip.split('.')[-1]
+                name = f"{op} Printer-{serial_last3}-{ip_last}"
+                return {
+                    'SUBNET': subnet_row['ip_subnet'],
+                    'MR': subnet_row['atwtb'],
+                    'OP': subnet_row['sort2'],
+                    'STATUS_OP': subnet_row['text_s'],
+                    'NAME': name,
+                    'TIMESTAMP': int(datetime.now().timestamp()),
+                }
     except Exception as e:
-        print(f"Error processing row {row}: {e}")
+        logger.error(f"Error processing row {row}: {e}", exc_info=True)
 
     return {
         'SUBNET': None,
@@ -202,7 +236,6 @@ def get_subnet_info(row, subnets_df):
         'OP': None,
         'STATUS_OP': None,
         'NAME': None,
-        'MACNAME': None,
         'TIMESTAMP': int(datetime.now().timestamp()),
     }
 
@@ -214,7 +247,7 @@ def process_printer_info(printer_df, subnets_df):
     subnet_info_df = pd.DataFrame(results)
     printer_df = pd.concat([printer_df.reset_index(drop=True), subnet_info_df], axis=1)
 
-    columns_order = ['IP', 'MODEL', 'SN', 'MACNAME', 'SUBNET', 'MR', 'OP', 'STATUS_OP', 'NAME', 'TIMESTAMP']
+    columns_order = ['IP', 'MODEL', 'SN', 'MAC', 'SUBNET', 'MR', 'OP', 'STATUS_OP', 'NAME', 'TIMESTAMP']
     return printer_df[columns_order]
 
 
@@ -254,9 +287,24 @@ def get_data_from_zbx():
         return pd.DataFrame()  # Возвращаем пустой DataFrame при ошибке
 
 
+# Функция для очистки данных
+def cleanse_data(df):
+    def clean_cell(cell):
+        # Удаляем все недопустимые символы
+        if isinstance(cell, str):
+            cell = re.sub(r'[\x00-\x1F\x7F]', '', cell)
+        return cell
+
+    # Используем DataFrame.apply для обработки каждого элемента DataFrame
+    return df.apply(lambda col: col.apply(clean_cell))
+
+
 def get_data_to_zbx(df, table_name):
     """Функция для загрузки данных в таблицу базы данных."""
     try:
+        # Очищаем данные перед вставкой
+        df = cleanse_data(df)
+
         engine = get_db_connection()
         df.to_sql(table_name, engine, if_exists='replace', index=False)
         return f"Данные успешно загружены в таблицу {table_name}"
