@@ -1,0 +1,148 @@
+[root@0001rtczabnfs zabbix-printer-discovering]# docker compose up --build -d
+[+] Building 77.0s (15/21)                                                                                                                                              docker:default
+ => [zabbix-printer-discovering internal] load build definition from Dockerfile                                                                                                   0.0s
+ => => transferring dockerfile: 2.98kB                                                                                                                                            0.0s
+ => [zabbix-printer-discovering internal] load metadata for public.ecr.aws/docker/library/oraclelinux:9                                                                           0.0s
+ => [zabbix-printer-discovering internal] load .dockerignore                                                                                                                      0.0s
+ => => transferring context: 2B                                                                                                                                                   0.0s
+ => [zabbix-printer-discovering  1/17] FROM public.ecr.aws/docker/library/oraclelinux:9                                                                                           0.0s
+ => [zabbix-printer-discovering internal] load build context                                                                                                                      0.0s
+ => => transferring context: 412B                                                                                                                                                 0.0s
+ => CACHED [zabbix-printer-discovering  2/17] RUN yum -y update &&     yum -y install python3 python3-pip cronie unixODBC epel-release tar gcc make unzip &&     yum clean all    0.0s
+ => CACHED [zabbix-printer-discovering  3/17] COPY oracle-instantclient-basic-23.4.0.24.05-1.el9.x86_64.rpm /tmp/                                                                 0.0s
+ => CACHED [zabbix-printer-discovering  4/17] COPY oracle-instantclient-odbc-23.4.0.24.05-1.el9.x86_64.rpm /tmp/                                                                  0.0s
+ => CACHED [zabbix-printer-discovering  5/17] COPY unixODBC-devel-2.3.9-4.el9.x86_64.rpm /tmp/                                                                                    0.0s
+ => CACHED [zabbix-printer-discovering  6/17] COPY masscan-master.zip /tmp/                                                                                                       0.0s
+ => [zabbix-printer-discovering  7/17] COPY libpcap-1.10.1.tar.gz /tmp/                                                                                                           0.0s
+ => [zabbix-printer-discovering  8/17] RUN yum -y install /tmp/oracle-instantclient-basic-23.4.0.24.05-1.el9.x86_64.rpm &&     yum -y install /tmp/oracle-instantclient-odbc-23  48.2s
+ => [zabbix-printer-discovering  9/17] RUN pip3 install pandas asyncio aiosnmp cx_Oracle sqlalchemy subprocess32 ipaddress configparser datetime pysnmp                          23.4s
+ => [zabbix-printer-discovering 10/17] RUN echo "[OracleODBC-23.4.0.24.05]\nDriver = /usr/lib/oracle/21/client64/lib/libsqora.so.23.4" > /etc/odbcinst.ini                        0.2s
+ => ERROR [zabbix-printer-discovering 11/17] RUN tar -xzf /tmp/libpcap-1.10.1.tar.gz &&     cd libpcap-1.10.1 &&     ./configure &&     make &&     make install &&     cd .. &&  5.1s
+------
+ > [zabbix-printer-discovering 11/17] RUN tar -xzf /tmp/libpcap-1.10.1.tar.gz &&     cd libpcap-1.10.1 &&     ./configure &&     make &&     make install &&     cd .. &&     rm -rf libpcap-1.10.1 /tmp/libpcap-1.10.1.tar.gz:
+0.615 checking build system type... x86_64-pc-linux-gnu
+0.698 checking host system type... x86_64-pc-linux-gnu
+0.698 checking target system type... x86_64-pc-linux-gnu
+0.698 checking for gcc... gcc
+0.732 checking whether the C compiler works... yes
+0.798 checking for C compiler default output file name... a.out
+0.801 checking for suffix of executables...
+0.858 checking whether we are cross compiling... no
+0.920 checking for suffix of object files... o
+0.956 checking whether we are using the GNU C compiler... yes
+0.993 checking whether gcc accepts -g... yes
+1.023 checking for gcc option to accept ISO C89... none needed
+1.074 checking for gcc option to accept ISO C99... none needed
+1.135 checking whether the compiler supports the -fvisibility=hidden option... yes
+1.175 checking for inline... inline
+1.208 checking for __atomic_load_n... yes
+1.272 checking for __atomic_store_n... yes
+1.331 checking for special C compiler options needed for large files... no
+1.331 checking for _FILE_OFFSET_BITS value needed for large files... no
+1.369 checking for _LARGEFILE_SOURCE value needed for large files... no
+1.446 checking how to run the C preprocessor... gcc -E
+1.553 checking for grep that handles long lines and -e... /usr/bin/grep
+1.557 checking for egrep... /usr/bin/grep -E
+1.560 checking for ANSI C header files... yes
+1.744 checking for sys/types.h... yes
+1.787 checking for sys/stat.h... yes
+1.844 checking for stdlib.h... yes
+1.892 checking for string.h... yes
+1.939 checking for memory.h... yes
+1.986 checking for strings.h... yes
+2.034 checking for inttypes.h... yes
+2.081 checking for stdint.h... yes
+2.133 checking for unistd.h... yes
+2.187 checking sys/ioccom.h usability... no
+2.226 checking sys/ioccom.h presence... no
+2.249 checking for sys/ioccom.h... no
+2.254 checking sys/sockio.h usability... no
+2.295 checking sys/sockio.h presence... no
+2.321 checking for sys/sockio.h... no
+2.322 checking netpacket/packet.h usability... yes
+2.363 checking netpacket/packet.h presence... yes
+2.378 checking for netpacket/packet.h... yes
+2.381 checking for net/pfvar.h... no
+2.414 checking for ANSI ioctl definitions... yes
+2.449 checking for strerror... yes
+2.507 checking for strerror_r... yes
+2.562 checking whether strerror_r is GNU-style... yes
+2.595 checking for vsyslog... yes
+2.651 checking for vsnprintf... yes
+2.711 checking for snprintf... yes
+2.782 checking for vasprintf... yes
+2.845 checking for asprintf... yes
+2.904 checking for strlcat... no
+2.981 checking for strlcpy... no
+3.046 checking for strtok_r... yes
+3.101 checking for ffs... yes
+3.173 checking whether ffs is declared... yes
+3.206 checking for getaddrinfo... yes
+3.263 checking for library containing putmsg... no
+3.378 checking whether getnetbyname_r is declared... yes
+3.417 checking for the Linux getnetbyname_r()... yes
+3.489 checking whether getprotobyname_r is declared... yes
+3.526 checking for the Linux getprotobyname_r()... yes
+3.591 checking for ether_hostton... yes
+3.656 checking whether ether_hostton is declared... no
+3.695 checking whether ether_hostton is declared... yes
+3.739 checking pthread.h usability... yes
+3.783 checking pthread.h presence... yes
+3.804 checking for pthread.h... yes
+3.805 checking for pthread_create... yes
+3.864 checking if --disable-protochain option is specified... enabled
+3.866 checking net/bpf.h usability... no
+3.909 checking net/bpf.h presence... no
+3.935 checking for net/bpf.h... no
+3.940 checking net/pfilt.h usability... no
+3.982 checking net/pfilt.h presence... no
+4.006 checking for net/pfilt.h... no
+4.012 checking net/enet.h usability... no
+4.065 checking net/enet.h presence... no
+4.089 checking for net/enet.h... no
+4.095 checking net/nit.h usability... no
+4.147 checking net/nit.h presence... no
+4.170 checking for net/nit.h... no
+4.176 checking sys/net/nit.h usability... no
+4.221 checking sys/net/nit.h presence... no
+4.243 checking for sys/net/nit.h... no
+4.248 checking linux/socket.h usability... yes
+4.290 checking linux/socket.h presence... yes
+4.305 checking for linux/socket.h... yes
+4.315 checking net/raw.h usability... no
+4.368 checking net/raw.h presence... no
+4.390 checking for net/raw.h... no
+4.394 checking sys/dlpi.h usability... no
+4.435 checking sys/dlpi.h presence... no
+4.457 checking for sys/dlpi.h... no
+4.458 checking config/HaikuConfig.h usability... no
+4.497 checking config/HaikuConfig.h presence... no
+4.518 checking for config/HaikuConfig.h... no
+4.519 checking packet capture type... linux
+4.519 checking for pkg-config... pkg-config
+4.520 checking for linux/wireless.h... yes
+4.563 checking for libnl-genl-3.0 with pkg-config... not found
+4.577 checking for nl_socket_alloc in -lnl-3... no
+4.632 checking for struct tpacket_auxdata.tp_vlan_tci... yes
+4.673 checking for getifaddrs... yes
+4.729 checking ifaddrs.h usability... yes
+4.770 checking ifaddrs.h presence... yes
+4.792 checking for ifaddrs.h... yes
+4.794 checking linux/net_tstamp.h usability... yes
+4.838 checking linux/net_tstamp.h presence... yes
+4.854 checking for linux/net_tstamp.h... yes
+4.857 checking for socklen_t... yes
+4.932 checking dagapi.h usability... no
+4.973 checking dagapi.h presence... no
+4.997 checking for dagapi.h... no
+4.997 checking whether we have Septel API headers... no
+4.998 checking whether we have Myricom Sniffer API... no
+4.998 checking whether TurboCap is supported... no
+5.023 checking whether to enable remote packet capture... no
+5.024 checking whether to build optimizer debugging code... no
+5.024 checking whether to build parser debugging code... no
+5.025 checking for flex... no
+5.025 checking for lex... no
+5.026 configure: error: Neither flex nor lex was found.
+------
+failed to solve: process "/bin/sh -c tar -xzf /tmp/libpcap-1.10.1.tar.gz &&     cd libpcap-1.10.1 &&     ./configure &&     make &&     make install &&     cd .. &&     rm -rf libpcap-1.10.1 /tmp/libpcap-1.10.1.tar.gz" did not complete successfully: exit code: 1
